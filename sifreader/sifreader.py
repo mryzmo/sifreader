@@ -71,14 +71,17 @@ class SIFFile(object):
 
         res = super().__repr__() + '\n' + res
         return res
-
-    def _read_header(self, filepath):
+    
+    def _read_header(self, filepath, verbose):
         f = open(filepath, 'rb')
-        headerlen = 32
+        headerlen = 50
         spool = 0
         i = 0
+        pxnumline=0
         while i < headerlen + spool:
             line = f.readline().strip()
+            if verbose:
+                print(str(i)+':'+str(f.tell())+': '+str(line))
             if i == 0:
                 if line != b'Andor Technology Multi-Channel File':
                     f.close()
@@ -102,29 +105,15 @@ class SIFFile(object):
                 tokens = line.split()
                 if len(tokens) >= 1 and tokens[0] == 'Spooled':
                     spool = 1
-            if i == 9:
-                wavelength_info = line.split()
-                self.center_wavelength = float(wavelength_info[3])
-                self.grating = float(wavelength_info[6])
-                self.grating_blaze = float(wavelength_info[7])
-            if i == 19:
-                self.wavelength_coefficients = [float(num) for num in line.split()][::-1]
-            if 7 < i < headerlen - 12:
-                if len(line) == 17 and line[0:6] == b'65539 ':
-                    # and line[7] == b'x01' and line[8] == b'x20' \
-                    # and line[9] == b'x00':
-                    headerlen = i + 12
-            if i == headerlen - 2:
-                if line[:12] == b'Pixel number':
-                    line = line[12:]
-                tokens = line.split()
-                if len(tokens) < 6:
-                    raise Exception('Not able to read stacksize.')
+            elif line.startswith(b'Pixel number') and pxnumline==0:
+                pxnumline=i
+            elif i == pxnumline+2 and pxnumline>0:
+                tokens=scanf('Pixel number%d %d %d %d %d %d %d %d %d', s=str(line), collapseWhitespace=False)
                 self.yres = int(tokens[2])
                 self.xres = int(tokens[3])
                 self.stacksize = int(tokens[5])
-            elif i == headerlen - 1:
-                tokens = line.split()
+            elif i == pxnumline+3 and pxnumline>0:
+                tokens = scanf('%d %d %d %d %d %d %d', s=str(line), collapseWhitespace=False)
                 if len(tokens) < 7:
                     raise Exception("Not able to read Image dimensions.")
                 self.left = int(tokens[1])
@@ -133,6 +122,13 @@ class SIFFile(object):
                 self.bottom = int(tokens[4])
                 self.xbin = int(tokens[5])
                 self.ybin = int(tokens[6])
+            elif i>=pxnumline+4 and pxnumline > 0:# and str(line)==b'0':
+                #'End of header, looking for start of data!'
+                for i in range(self.stacksize):
+                    f.readline()
+                #'Header end: '+str(f.tell()))
+                self.m_offset = f.tell()
+                break;
             i += 1
 
         f.close()
@@ -143,12 +139,6 @@ class SIFFile(object):
         height = self.top - self.bottom + 1
         mod = height % self.ybin
         self.height = int((height - mod) / self.xbin)
-
-        self.filesize = os.path.getsize(filepath)
-        self.datasize = self.width * self.height * 4 * self.stacksize
-        self.m_offset = self.filesize - self.datasize - 8
-
-        self.x_axis = np.polyval(self.wavelength_coefficients, np.arange(self.left, self.right + 1))
 
     def read_block(self, num=0):
         """
