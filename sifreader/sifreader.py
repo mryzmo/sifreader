@@ -6,6 +6,7 @@
 import os
 import time
 import numpy as np
+from scanf import scanf
 
 
 class SIFFile(object):
@@ -72,7 +73,7 @@ class SIFFile(object):
         res = super().__repr__() + '\n' + res
         return res
     
-    def _read_header(self, filepath, verbose):
+    def _read_header(self, filepath, verbose=False):
         f = open(filepath, 'rb')
         headerlen = 50
         spool = 0
